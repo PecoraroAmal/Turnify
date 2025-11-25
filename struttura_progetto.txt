@@ -48,7 +48,7 @@ Campi:
 - nome: string
 - ruoli: number[] (lista id ruolo che il dipendente può coprire)
 - oreSettimanali: number (budget ore lavorabili nette su 7 giorni)
-- importanza: number (1..5; usata nella strategia "priority": valori PIÙ BASSI hanno precedenza)
+- esperienza: number (1..5; usata nella strategia "priority": valori PIÙ BASSI hanno precedenza)
 - indisponibilita: { giorno: string, da: HH:MM, a: HH:MM }[] (finestre orarie NON lavorabili sul giorno indicato)
 - feriePermessi: { data: YYYY-MM-DD, tipo: string }[] (non ancora integrati nel generatore attuale)
 
@@ -125,7 +125,7 @@ Pill tag per assegnazioni: turno · ruolo (inizio-fine), colore ruolo con testo 
 Nuovo algoritmo per settimana (14 giorni divisi in 2 settimane):
 1. Calcolo numero giorni di lavoro per dipendente: oreSettimanali / oreGiornaliere (arrotondato su).
 2. Calcolo persone per ruoli: usa minDipendenti per ruolo.
-3. Ordinamento dipendenti per importanza crescente (1 prima), assicurando che importanza 1 abbia almeno un importanza 2 con lui.
+3. Ordinamento dipendenti per esperienza crescente (1 prima), assicurando che esperienza 1 abbia almeno un esperienza 2 con lui.
 4. Lettura vincoli globali e per dipendente.
 5. Assegnazione partendo dal ruolo con meno minDipendenti: assegna numero minimo di dipendenti, poi passa al ruolo successivo.
 6. Persone senza ore settimanali complete vanno in fondo (gestito nell'ordinamento).
@@ -243,9 +243,9 @@ Logica core per assegnare turni in un singolo giorno:
    - Indica quante persone servono per coprire quel ruolo
 
 3. ORDINAMENTO DIPENDENTI PER IMPORTANZA
-   - Raggruppa dipendenti per livello importanza (1, 2, 3, 4, 5)
+   - Raggruppa dipendenti per livello esperienza (1, 2, 3, 4, 5)
    - Ordina gruppi in ordine crescente (1 = massima priorità)
-   - Mix strategico: se esiste importanza 1, inserisce un importanza 2 prima
+   - Mix strategico: se esiste esperienza 1, inserisce un esperienza 2 prima
      Questo garantisce equilibrio tra senior (1) e junior (2+)
    - Produce sortedEmployees: array ordinato per priorità assegnazione
 
@@ -265,7 +265,7 @@ Logica core per assegnare turni in un singolo giorno:
    
    a) FILTRAGGIO CANDIDATI
       - candidates = dipendenti che possiedono quel ruolo.id in array ruoli
-      - Mantiene ordine importanza da step 3
+      - Mantiene ordine esperienza da step 3
    
    b) TENTATIVO ASSEGNAZIONE
       Per ogni candidato finché assigned < required:

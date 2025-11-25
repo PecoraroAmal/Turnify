@@ -19,7 +19,7 @@ const guideLinks = [
 	},
 	{
 		title: "2. Aggiungi dipendenti",
-		description: "Ruoli abilitati, importanza e indisponibilità.",
+		description: "Ruoli abilitati, esperienza e indisponibilità.",
 		href: "dipendenti.html",
 		icon: "fa-user-group",
 	},
@@ -164,13 +164,17 @@ function buildSimulationData() {
 
 	// 4 dipendenti: Store Delivery Mattina, Store Delivery Pomeriggio, Sniper, Carrista
 	for (let i = 0; i < 4; i++) {
+		const ruoli = [1, 2, 3, 4];
+		let esperienza = 1;
+		if (ruoli.includes(3)) esperienza = 2;
+		if (ruoli.includes(4)) esperienza = 3;
 		dipendenti.push({
 			id: i + 1,
 			nome: simulationConfig.employeeNames[i],
-			ruoli: [1, 2, 3, 4], // Store Delivery Mattina, Store Delivery Pomeriggio, Sniper, Carrista
+			ruoli: ruoli, // Store Delivery Mattina, Store Delivery Pomeriggio, Sniper, Carrista
 			oreSettimanali: 40,
 			oreGiornaliere: 8,
-			importanza: (i % 5) + 1,
+			esperienza: esperienza,
 			indisponibilita: [],
 			feriePermessi: [],
 		});
@@ -178,13 +182,17 @@ function buildSimulationData() {
 
 	// 2 dipendenti: Store Delivery Mattina, Store Delivery Pomeriggio, Sniper
 	for (let i = 4; i < 6; i++) {
+		const ruoli = [1, 2, 3];
+		let esperienza = 1;
+		if (ruoli.includes(3)) esperienza = 2;
+		if (ruoli.includes(4)) esperienza = 3;
 		dipendenti.push({
 			id: i + 1,
 			nome: simulationConfig.employeeNames[i],
-			ruoli: [1, 2, 3], // Store Delivery Mattina, Store Delivery Pomeriggio, Sniper
+			ruoli: ruoli, // Store Delivery Mattina, Store Delivery Pomeriggio, Sniper
 			oreSettimanali: 40,
 			oreGiornaliere: 8,
-			importanza: (i % 5) + 1,
+			esperienza: esperienza,
 			indisponibilita: [],
 			feriePermessi: [],
 		});
@@ -192,13 +200,17 @@ function buildSimulationData() {
 
 	// 4 dipendenti: Store Delivery Mattina, Store Delivery Pomeriggio
 	for (let i = 6; i < 10; i++) {
+		const ruoli = [1, 2];
+		let esperienza = 1;
+		if (ruoli.includes(3)) esperienza = 2;
+		if (ruoli.includes(4)) esperienza = 3;
 		dipendenti.push({
 			id: i + 1,
 			nome: simulationConfig.employeeNames[i],
-			ruoli: [1, 2], // Store Delivery Mattina, Store Delivery Pomeriggio
+			ruoli: ruoli, // Store Delivery Mattina, Store Delivery Pomeriggio
 			oreSettimanali: 40,
 			oreGiornaliere: 8,
-			importanza: (i % 5) + 1,
+			esperienza: esperienza,
 			indisponibilita: [],
 			feriePermessi: [],
 		});

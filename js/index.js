@@ -1,3 +1,4 @@
+function normalizeDayName(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase(); }
 const DB_KEY = "gestoreTurni_data";
 const PLANNING_KEY = "gestoreTurni_planning";
 
@@ -29,12 +30,25 @@ function getReadableTextColor(hex) {
 function readDatabase() {
 	try {
 		const parsed = JSON.parse(localStorage.getItem(DB_KEY) || "{}");
-		return {
-			ruoli: parsed?.ruoli || [],
-			dipendenti: parsed?.dipendenti || [],
-			turni: parsed?.turni || [],
-			vincoli: parsed?.vincoli || {},
-		};
+		if (parsed.dipendenti && parsed.dipendenti.length > 0) {
+			return {
+				ruoli: parsed?.ruoli || [],
+				dipendenti: parsed?.dipendenti || [],
+				turni: parsed?.turni || [],
+				vincoli: parsed?.vincoli || {},
+			};
+		} else {
+			// Use hardcoded data
+			return {
+				ruoli: [],
+				dipendenti: (window.employees || []).map(e => ({ id: e.name, nome: e.name, oreSettimanali: e.hoursWeek })),
+				turni: [
+					{ nome: 'Mattina', inizio: '06:00', fine: '14:30', colore: '#007bff' },
+					{ nome: 'Pomeriggio', inizio: '13:30', fine: '22:00', colore: '#28a745' }
+				],
+				vincoli: window.constraints || {},
+			};
+		}
 	} catch (error) {
 		console.error("Errore lettura database", error);
 		return { ruoli: [], dipendenti: [], turni: [], vincoli: {} };
@@ -142,794 +156,57 @@ function formatHoursLabel(minutes, expectedHours) {
 	return ` (${Number(hours.toFixed(1))}/${exp}h)`;
 }
 
-function canWorkEmployee(employee, context) {
-	const {
-		roleId,
-		dayName,
-		shift,
-		dayKey,
-		vincoli,
-		state,
-		assignmentStart,
-		assignmentEnd,
-	} = context;
-
-	if (!employee.ruoli.includes(roleId)) {
-		console.log(`[canWork] ${employee.nome}: NON ha il ruolo ${roleId}`);
-		return false;
-	}
-
-	const dailyLimit = vincoli.perDipendente?.[employee.id]?.oreMassimeGiornaliere || vincoli.oreMassimeGiornaliereDefault || 8;
-	// Precedenza: valore specifico su dipendente (oreGiornaliere) -> override vincoli.perDipendente -> default globale
-	const effectiveDailyLimit = employee.oreGiornaliere || dailyLimit;
-	const weeklyLimit = employee.oreSettimanali || 40;
-	const restMin = vincoli.perDipendente?.[employee.id]?.riposoMinimoOre || vincoli.riposoMinimoOre || 11;
-
-	const pauseAfter = vincoli.pausaDopoOre || 6;
-	const pauseMinutes = vincoli.durataPausaMinuti || 30;
-
-	let assignmentMinutes = minutesBetween(shift.inizio, shift.fine);
-	// Sottrai pausa se il turno supera la soglia
-	if (assignmentMinutes / 60 > pauseAfter) {
-		assignmentMinutes -= pauseMinutes;
-	}
-
-	const dayMinutes = state.dailyMinutes.get(dayKey)?.get(employee.id) || 0;
-	if ((dayMinutes + assignmentMinutes) / 60 > effectiveDailyLimit) {
-		console.log(`[canWork] ${employee.nome}: Supera ore giornaliere (${((dayMinutes + assignmentMinutes) / 60).toFixed(1)} > ${effectiveDailyLimit})`);
-		return false;
-	}
-
-	const weekIndex = state.currentWeek;
-	const weekMap = state.weeklyMinutes.get(weekIndex) || new Map();
-	const currentWeekMinutes = weekMap.get(employee.id) || 0;
-	if ((currentWeekMinutes + assignmentMinutes) / 60 > weeklyLimit) {
-		console.log(`[canWork] ${employee.nome}: Supera ore settimanali (${((currentWeekMinutes + assignmentMinutes) / 60).toFixed(1)} > ${weeklyLimit})`);
-		return false;
-	}
-
-	const lastEnd = state.lastAssignmentEnd.get(employee.id);
-	if (lastEnd) {
-		const hoursSince = (assignmentStart - lastEnd) / (1000 * 60 * 60);
-		if (hoursSince < restMin) {
-			console.log(`[canWork] ${employee.nome}: Non rispetta riposo minimo (${hoursSince.toFixed(1)}h < ${restMin}h, ultimo turno finito ${lastEnd.toISOString()})`);
-			return false;
-		}
-	}
-
-	const indisponibile = (employee.indisponibilita || []).some((periodo) => {
-		if (periodo.giorno.toLowerCase() !== dayName) return false;
-		return !(
-			shift.fine <= periodo.da ||
-			shift.inizio >= periodo.a
-		);
-	});
-	if (indisponibile) {
-		console.log(`[canWork] ${employee.nome}: In indisponibilità per ${dayName}`);
-		return false;
-	}
-
-	console.log(`[canWork] ${employee.nome}: ✓ OK (ore nette: ${(assignmentMinutes/60).toFixed(1)})`);
-	return true;
-}
-
-function updateStateAfterAssignment(employeeId, context) {
-	const { state, dayKey, assignmentStart, assignmentEnd, assignmentMinutes } = context;
-	if (!state.dailyMinutes.has(dayKey)) state.dailyMinutes.set(dayKey, new Map());
-	const dailyMap = state.dailyMinutes.get(dayKey);
-	dailyMap.set(employeeId, (dailyMap.get(employeeId) || 0) + assignmentMinutes);
-
-	const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-	weekMap.set(employeeId, (weekMap.get(employeeId) || 0) + assignmentMinutes);
-	state.weeklyMinutes.set(state.currentWeek, weekMap);
-
-	state.lastAssignmentEnd.set(employeeId, assignmentEnd);
-	
-	console.log(`[updateState] ${employeeId}: +${(assignmentMinutes/60).toFixed(1)}h, giorno=${((dailyMap.get(employeeId))/60).toFixed(1)}h, settimana=${((weekMap.get(employeeId))/60).toFixed(1)}h`);
-}
-
-function assignShiftToRole(params) {
-	const { db, role, dayName, dayKey, shift, state, strategy } = params;
-	const assignmentMinutes = minutesBetween(shift.inizio, shift.fine);
-	const assignmentStart = new Date(`${dayKey}T${shift.inizio}`);
-	const assignmentEnd = new Date(`${dayKey}T${shift.fine}`);
-
-	const candidates = [...db.dipendenti].filter((employee) => employee.ruoli.includes(role.id));
-
-	const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-
-	const sortedCandidates = candidates.sort((a, b) => (a.importanza || 5) - (b.importanza || 5));
-
-	const assignments = [];
-	for (const employee of sortedCandidates) {
-		const canWork = canWorkEmployee(employee, {
-			roleId: role.id,
-			dayName,
-			shift,
-			dayKey,
-			vincoli: db.vincoli,
-			state,
-			assignmentStart,
-			assignmentEnd,
-		});
-		if (!canWork) continue;
-
-		assignments.push({
-			dipendente: employee.nome,
-			dipendenteId: employee.id,
-			turno: shift.nome,
-			ruolo: role.nome,
-			colore: role.colore,
-			inizio: shift.inizio,
-			fine: shift.fine,
-		});
-
-		updateStateAfterAssignment(employee.id, {
-			state,
-			dayKey,
-			assignmentStart,
-			assignmentEnd,
-			assignmentMinutes,
-		});
-
-		if (assignments.length >= (role.maxDipendenti || 1)) break;
-	}
-
-	const results = [...assignments];
-	while (results.length < (role.minDipendenti || 1)) {
-		results.push({
-			dipendente: "Non coperto",
-			dipendenteId: null,
-			turno: shift.nome,
-			ruolo: role.nome,
-			colore: role.colore,
-			inizio: shift.inizio,
-			fine: shift.fine,
-			warning: true,
-		});
-	}
-
-	return results;
-}
-
 function generatePlanning() {
-
-	clearDashboardMessage();
-	setPlanningStatus("Generazione in corso...", "pending");
-	dashboardDom.generateBtn.disabled = true;
-	const startDateValue = dashboardDom.planningStart.value;
-	if (!startDateValue) {
-		showDashboardMessage("Seleziona la data di partenza.", "warning");
-		setPlanningStatus("Errore: data mancante", "error");
-		dashboardDom.generateBtn.disabled = false;
+	// Use the planning from planning.js
+	if (!window.planning) {
+		showDashboardMessage("Planning non disponibile.", "error");
 		return;
 	}
 
 	const db = readDatabase();
-	if (!db.ruoli.length || !db.turni.length || !db.dipendenti.length) {
-		showDashboardMessage("Servono ruoli, turni e dipendenti per il planning.", "warning");
-		setPlanningStatus("Errore: dati mancanti", "error");
-		dashboardDom.generateBtn.disabled = false;
-		return;
-	}
+	const startDate = dashboardDom.planningStart.value || getDefaultStartDate();
+	const dates = createDateRange(startDate, 5); // 5 days
 
-	const days = createDateRange(startDateValue, 7);
-	const planning = {};
-	const state = {
-		weeklyMinutes: new Map(),
-		dailyMinutes: new Map(),
-		lastAssignmentEnd: new Map(),
-		currentWeek: 0,
-		weeklyAssignments: new Map(), // key: employeeId, value: {shiftId, roleId} per la settimana corrente
+	const convertedPlanning = {};
+	dates.forEach(date => {
+		const dayName = giornoLabel[date.getDay()];
+		const dayData = window.planning[dayName.charAt(0).toUpperCase() + dayName.slice(1)];
+		if (dayData) {
+			const assignments = [];
+			['Mattina', 'Pomeriggio'].forEach(shift => {
+				const shiftData = dayData[shift];
+				Object.keys(shiftData).forEach(role => {
+					shiftData[role].forEach(name => {
+						const emp = db.dipendenti.find(e => e.nome === name);
+						if (emp) {
+							const turno = db.turni.find(t => t.nome === shift);
+							assignments.push({
+								dipendente: name,
+								dipendenteId: emp.id,
+								turno: shift,
+								ruolo: role,
+								inizio: turno ? turno.inizio : '06:00',
+								fine: turno ? turno.fine : '14:30',
+								colore: turno ? turno.colore : '#000000'
+							});
+						}
+					});
+				});
+			});
+			convertedPlanning[date.toISOString().split('T')[0]] = assignments;
+		}
+	});
+
+	const planningData = {
+		startDate,
+		planning: convertedPlanning
 	};
 
-	// Dividi i 7 giorni in 1 settimana
-	const week1Days = days.slice(0, 7);
-	const weeks = [week1Days];
-
-	weeks.forEach((weekDays, weekIndex) => {
-		state.currentWeek = weekIndex;
-		state.weeklyAssignments = new Map(); // Reset assegnazioni settimanali
-		state.weeklyMinutes = new Map(); // Reset ore settimanali per nuova settimana
-		console.log(`[DEBUG] ======== SETTIMANA ${weekIndex + 1} ========`);
-
-		// Genera assegnazioni per la settimana
-		const weeklyPlan = generateWeeklyPlan(db, weekDays, state);
-
-		// Applica il piano settimanale a ogni giorno
-		weekDays.forEach((date, dayIndex) => {
-			const dayKey = date.toISOString().split("T")[0];
-			const dayName = giornoLabel[date.getDay()].toLowerCase();
-			
-			const result = applyDailyPlan(db, dayKey, dayName, weeklyPlan, state);
-			planning[dayKey] = {
-				assignments: result.assignments,
-				roleMatrix: result.roleMatrix,
-				employeeMatrix: result.employeeMatrix
-			};
-		});
-
-		// Fase di completamento: rimuovi tutti i "Non coperto" se ci sono dipendenti disponibili
-		for (const date of weekDays) {
-			const dayKey = date.toISOString().split("T")[0];
-			const dayName = giornoLabel[date.getDay()].toLowerCase();
-			const dayObj = planning[dayKey];
-			const dayAssignments = dayObj && Array.isArray(dayObj.assignments) ? dayObj.assignments : [];
-
-			for (const shift of db.turni) {
-				for (const role of db.ruoli) {
-					// Trova slot "Non coperto" per questo turno/ruolo
-					const nonCoperti = dayAssignments.filter(a => !a.dipendenteId && a.turno === shift.nome && a.ruolo === role.nome);
-					for (const slot of nonCoperti) {
-						// Trova dipendente disponibile
-						const candidates = db.dipendenti.filter(emp => {
-							// Non già assegnato in questo giorno
-							if (dayAssignments.some(a => a.dipendenteId === emp.id)) return false;
-							// Deve avere il ruolo
-							if (!emp.ruoli.includes(role.id)) return false;
-							// Deve avere ore residue settimanali
-							const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-							const currentMinutes = weekMap.get(emp.id) || 0;
-							const targetMinutes = (emp.oreSettimanali || 40) * 60;
-							if (currentMinutes >= targetMinutes) return false;
-							// Deve rispettare limiti giornalieri
-							const dailyLimit = emp.oreGiornaliere || db.vincoli.oreMassimeGiornaliereDefault || 8;
-							const dayMap = state.dailyMinutes.get(dayKey) || new Map();
-							const todayMinutes = dayMap.get(emp.id) || 0;
-							const shiftMinutes = minutesBetween(shift.inizio, shift.fine);
-							const pauseAfter = db.vincoli?.pausaDopoOre || 6;
-							const pauseMinutes = db.vincoli?.durataPausaMinuti || 30;
-							let netMinutes = shiftMinutes;
-							if (shiftMinutes / 60 > pauseAfter) netMinutes -= pauseMinutes;
-							if ((todayMinutes + netMinutes) / 60 > dailyLimit) return false;
-							// Deve rispettare indisponibilità
-							const indisponibile = (emp.indisponibilita || []).some((periodo) => {
-								if (periodo.giorno.toLowerCase() !== dayName) return false;
-								return !(shift.fine <= periodo.da || shift.inizio >= periodo.a);
-							});
-							if (indisponibile) return false;
-							return true;
-						});
-						if (candidates.length > 0) {
-							// Scegli il candidato con meno ore settimanali assegnate
-							candidates.sort((a, b) => {
-								const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-								return (weekMap.get(a.id) || 0) - (weekMap.get(b.id) || 0);
-							});
-							const emp = candidates[0];
-							// Sostituisci lo slot "Non coperto" con l'assegnazione
-							const assignment = {
-								dipendente: emp.nome,
-								dipendenteId: emp.id,
-								turno: shift.nome,
-								ruolo: role.nome,
-								colore: role.colore,
-								inizio: shift.inizio,
-								fine: shift.fine,
-							};
-							const idx = dayAssignments.indexOf(slot);
-							if (idx !== -1) {
-								dayAssignments[idx] = assignment;
-								updateStateAfterAssignment(emp.id, {
-									state,
-									dayKey,
-									assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-									assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-									assignmentMinutes: minutesBetween(shift.inizio, shift.fine),
-								});
-							}
-						}
-					}
-				}
-			}
-		}
-	});
-
-	const stored = { startDate: startDateValue, planning, generatedAt: new Date().toISOString(), versione: 2 };
-	savePlanning(stored);
-	renderPlanningMatrix(stored);
-	setPlanningStatus("Planning aggiornato", "ok");
-	showDashboardMessage("Planning di 7 giorni generato.", "success");
-	dashboardDom.generateBtn.disabled = false;
+	savePlanning(planningData);
+	renderPlanningMatrix(planningData);
+	setPlanningStatus("Planning generato", "ok");
+	showDashboardMessage("Planning generato con successo.", "success");
 }
-
-function generateWeeklyPlan(db, weekDays, state) {
-	// Calcola giorni di lavoro per ogni dipendente
-	const remainingDays = new Map();
-	for (const emp of db.dipendenti) {
-		const oreGiornaliere = emp.oreGiornaliere || db.vincoli.oreMassimeGiornaliereDefault || 8;
-		const giorniLavoro = Math.floor((emp.oreSettimanali || 40) / oreGiornaliere);
-		// Conta giorni disponibili (semplificato, considera tutti i giorni, controlla indisponibilità in applyDailyPlan)
-		let available = Math.min(giorniLavoro, weekDays.length);
-		remainingDays.set(emp.id, available);
-	}
-	state.remainingDays = remainingDays;
-	return {}; // Non serve più weeklyPlan
-}
-
-function canWorkWeeklyShift(employee, shift, weekDays, vincoli, state) {
-	// Verifica se un dipendente può lavorare un turno per i giorni disponibili della settimana
-	const shiftMinutes = minutesBetween(shift.inizio, shift.fine);
-	const pauseAfter = vincoli.pausaDopoOre || 6;
-	const pauseMinutes = vincoli.durataPausaMinuti || 30;
-	let netMinutes = shiftMinutes;
-	if (shiftMinutes / 60 > pauseAfter) {
-		netMinutes -= pauseMinutes;
-	}
-
-	const dailyLimit = employee.oreGiornaliere || vincoli.oreMassimeGiornaliereDefault || 8;
-	const weeklyLimit = employee.oreSettimanali || 40;
-
-	// Verifica che il turno non superi il limite giornaliero
-	if (netMinutes / 60 > dailyLimit) {
-		console.log(`[canWorkWeekly] ${employee.nome}: Turno supera limite giornaliero (${(netMinutes/60).toFixed(1)}h > ${dailyLimit}h)`);
-		return false;
-	}
-
-	// Calcola quanti giorni disponibili ha per questo turno nella settimana
-	let availableDays = 0;
-	for (const date of weekDays) {
-		const dayName = giornoLabel[date.getDay()].toLowerCase();
-		
-		// Verifica indisponibilità
-		const indisponibile = (employee.indisponibilita || []).some((periodo) => {
-			if (periodo.giorno.toLowerCase() !== dayName) return false;
-			return !(
-				shift.fine <= periodo.da ||
-				shift.inizio >= periodo.a
-			);
-		});
-		
-		if (!indisponibile) {
-			availableDays++;
-		}
-	}
-
-	if (availableDays === 0) {
-		console.log(`[canWorkWeekly] ${employee.nome}: Nessun giorno disponibile per ${shift.nome}`);
-		return false;
-	}
-
-	// Calcola quanti giorni potrebbe lavorare senza superare il limite settimanale
-	const maxDaysForWeeklyLimit = Math.floor((weeklyLimit * 60) / netMinutes);
-	const actualDays = Math.min(availableDays, maxDaysForWeeklyLimit);
-
-	if (actualDays === 0) {
-		console.log(`[canWorkWeekly] ${employee.nome}: Limite settimanale troppo basso per ${shift.nome}`);
-		return false;
-	}
-
-	console.log(`[canWorkWeekly] ${employee.nome}: ✓ OK per ${shift.nome} (può lavorare ${actualDays}/${availableDays} giorni, ${(actualDays * netMinutes/60).toFixed(1)}h settimanali)`);
-	return true;
-}
-
-function applyDailyPlan(db, dayKey, dayName, weeklyPlan, state) {
-	const assignments = [];
-	const vincoli = db.vincoli || {};
-	const shifts = [...db.turni].sort((a,b) => a.inizio.localeCompare(b.inizio));
-	const assignedEmployeesForDay = new Set();
-
-	// Matrice ruoli (globale sul giorno, accumula assegnazioni minime per ogni ruolo indipendentemente dal turno)
-	const roleMatrix = db.ruoli.map(role => ({
-		nome: role.nome,
-		livello: role.livello,
-		minimoPersone: role.minDipendenti || 1,
-		massimoPersone: role.maxDipendenti || role.minDipendenti || 1,
-		assegnazioni: 0,
-		minimoRaggiunto: false
-	}));
-
-	// Matrice dipendenti (stato di capacità + giorni residui)
-	const employeeMatrix = db.dipendenti.map(emp => ({
-		nome: emp.nome,
-		id: emp.id,
-		oreSettimanali: emp.oreSettimanali || 40,
-		oreGiornaliere: emp.oreGiornaliere || 8,
-		giorniLavorativi: Math.floor((emp.oreSettimanali || 40) / (emp.oreGiornaliere || 8)),
-		importanza: emp.importanza || 5,
-		ruoli: emp.ruoli.slice(),
-		remainingDays: state.remainingDays.get(emp.id) || 0
-	}));
-
-	// Funzione di ordinamento distribuzione: preferire chi ha meno giorni residui, meno ore settimanali accumulate, poi importanza alta
-	function sortCandidates(list, roleId) {
-		return list.slice().sort((a,b) => {
-			// giorni residui
-			const remA = state.remainingDays.get(a.id) || 0;
-			const remB = state.remainingDays.get(b.id) || 0;
-			if (remA !== remB) return remA - remB; // meno giorni rimasti prima
-			// ore settimanali già accumulate
-			const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-			const minA = weekMap.get(a.id) || 0;
-			const minB = weekMap.get(b.id) || 0;
-			if (minA !== minB) return minA - minB; // chi ha meno ore prima
-			// importanza (numeri maggiori più importanti secondo descrizione utente)
-			return (b.importanza || 0) - (a.importanza || 0);
-		});
-	}
-
-	// Assegnazione minima per ogni turno (fase 1)
-	for (const shift of shifts) {
-		const compatibleRoles = db.ruoli.filter(r => shift.ruoliPossibili && shift.ruoliPossibili.includes(r.id));
-		// Ordina ruoli con meno persone disponibili prima
-		compatibleRoles.sort((a,b) => {
-			const aCount = db.dipendenti.filter(emp => emp.ruoli.includes(a.id)).length;
-			const bCount = db.dipendenti.filter(emp => emp.ruoli.includes(b.id)).length;
-			return aCount - bCount;
-		});
-
-		for (const role of compatibleRoles) {
-			const requiredMin = role.minDipendenti || 1;
-			let alreadyAssigned = assignments.filter(a => a.turno === shift.nome && a.ruolo === role.nome && a.dipendenteId).length;
-			if (alreadyAssigned >= requiredMin) continue; // già coperto
-
-			// Candidati disponibili
-			let candidates = db.dipendenti.filter(emp => 
-				emp.ruoli.includes(role.id) && (state.remainingDays.get(emp.id) || 0) > 0 && !assignedEmployeesForDay.has(emp.id)
-			);
-			candidates = sortCandidates(candidates, role.id);
-
-			for (const emp of candidates) {
-				if (alreadyAssigned >= requiredMin) break;
-				// indisponibilità
-				const indisponibile = (emp.indisponibilita || []).some(per => {
-					if (per.giorno.toLowerCase() !== dayName) return false;
-					return !(shift.fine <= per.da || shift.inizio >= per.a);
-				});
-				if (indisponibile) continue;
-
-				// limiti orari
-				const shiftMinutes = minutesBetween(shift.inizio, shift.fine);
-				const pauseAfter = vincoli.pausaDopoOre || 6;
-				const pauseMinutes = vincoli.durataPausaMinuti || 30;
-				let netMinutes = shiftMinutes;
-				if (shiftMinutes / 60 > pauseAfter) netMinutes -= pauseMinutes;
-				const dailyLimit = emp.oreGiornaliere || vincoli.oreMassimeGiornaliereDefault || 8;
-				const weeklyLimit = emp.oreSettimanali || 40;
-				const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-				const currentWeekMinutes = weekMap.get(emp.id) || 0;
-				if (netMinutes/60 > dailyLimit || (currentWeekMinutes + netMinutes)/60 > weeklyLimit) continue;
-
-				assignments.push({
-					dipendente: emp.nome,
-					dipendenteId: emp.id,
-					turno: shift.nome,
-					ruolo: role.nome,
-					colore: role.colore,
-					inizio: shift.inizio,
-					fine: shift.fine,
-				});
-				alreadyAssigned++;
-				assignedEmployeesForDay.add(emp.id);
-				state.remainingDays.set(emp.id, state.remainingDays.get(emp.id) - 1);
-				updateStateAfterAssignment(emp.id, {
-					state,
-					dayKey,
-					assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-					assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-					assignmentMinutes: netMinutes,
-				});
-				const roleEntry = roleMatrix.find(r => r.nome === role.nome);
-				if (roleEntry) {
-					roleEntry.assegnazioni++;
-					if (roleEntry.assegnazioni >= roleEntry.minimoPersone) roleEntry.minimoRaggiunto = true;
-				}
-			}
-
-			// Se non coperto minimo, aggiungi placeholder
-			for (let i = alreadyAssigned; i < requiredMin; i++) {
-				assignments.push({
-					dipendente: "Non coperto",
-					dipendenteId: null,
-					turno: shift.nome,
-					ruolo: role.nome,
-					colore: role.colore,
-					inizio: shift.inizio,
-					fine: shift.fine,
-					warning: true,
-				});
-			}
-		}
-	}
-
-	// Non aggiungiamo fase di riempimento massimo: conserviamo risorse per altri giorni
-	return { assignments, roleMatrix, employeeMatrix };
-}
-
-function generateWeekPlanning(db, dayKey, dayName, state) {
-	const assignments = [];
-
-	// 1. Calcolo numero giorni di lavoro per dipendente
-	const employees = db.dipendenti.map(emp => ({
-		...emp,
-		giorniLavoro: Math.ceil((emp.oreSettimanali || 40) / (emp.oreGiornaliere || 8))
-	}));
-
-	// 2. Calcolo persone per ruoli (usa minDipendenti e maxDipendenti)
-	const roleRequirements = db.ruoli.map(role => ({
-		...role,
-		requiredMin: role.minDipendenti || 1,
-		requiredMax: role.maxDipendenti || role.minDipendenti || 1
-	}));
-
-	// 3. Ordina dipendenti per importanza
-	const groupedByImportance = {};
-	employees.forEach(emp => {
-		const imp = emp.importanza || 5;
-		if (!groupedByImportance[imp]) groupedByImportance[imp] = [];
-		groupedByImportance[imp].push(emp);
-	});
-
-	const sortedImportances = Object.keys(groupedByImportance).sort((a,b) => a - b);
-	let sortedEmployees = [];
-	sortedImportances.forEach(imp => {
-		const group = groupedByImportance[imp];
-		sortedEmployees.push(...group);
-	});
-
-	// 4. Leggi vincoli (già in db.vincoli)
-
-	// 5. Assegna partendo dal ruolo con meno persone
-	const sortedRoles = roleRequirements.sort((a,b) => a.requiredMin - b.requiredMin);
-
-	const shifts = [...db.turni].sort((a,b) => a.inizio.localeCompare(b.inizio));
-
-	console.log(`[DEBUG] Giorno ${dayKey} (${dayName}): ${shifts.length} turni disponibili`);
-
-	// Cicla tutti i turni del giorno
-	for (const shift of shifts) {
-		console.log(`[DEBUG] Turno: ${shift.nome} (${shift.inizio}-${shift.fine}), ruoliPossibili:`, shift.ruoliPossibili);
-		
-		// Filtra solo i ruoli compatibili con questo turno
-		const compatibleRoles = sortedRoles.filter(role => 
-			shift.ruoliPossibili && shift.ruoliPossibili.includes(role.id)
-		);
-
-		console.log(`[DEBUG] Ruoli compatibili per ${shift.nome}:`, compatibleRoles.map(r => r.nome));
-
-		compatibleRoles.forEach(role => {
-			// Ricalcola candidati ordinati per ore settimanali crescenti, poi importanza
-			const candidates = sortedEmployees
-				.filter(emp => emp.ruoli.includes(role.id))
-				.sort((a, b) => {
-					const aWeek = (state.weeklyMinutes.get(state.currentWeek)?.get(a.id) || 0);
-					const bWeek = (state.weeklyMinutes.get(state.currentWeek)?.get(b.id) || 0);
-					if (aWeek !== bWeek) return aWeek - bWeek;
-					return (a.importanza || 5) - (b.importanza || 5);
-				});
-
-			console.log(`[DEBUG] Candidati per ruolo ${role.nome}:`, candidates.map(c => c.nome));
-
-			let assigned = 0;
-			const assignedEmployees = new Set();
-
-			// PRIMA FASE: Copertura minima (requiredMin)
-			for (const emp of candidates) {
-				if (assigned >= role.requiredMin) break;
-				if (assignedEmployees.has(emp.id)) continue;
-
-				const canWork = canWorkEmployee(emp, {
-					roleId: role.id,
-					dayName,
-					shift,
-					dayKey,
-					vincoli: db.vincoli,
-					state,
-					assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-					assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-				});
-
-				console.log(`[DEBUG] Dipendente ${emp.nome} può lavorare come ${role.nome}?`, canWork);
-
-				if (canWork) {
-					const shiftMinutes = minutesBetween(shift.inizio, shift.fine);
-					const pauseAfter = db.vincoli?.pausaDopoOre || 6;
-					const pauseMinutes = db.vincoli?.durataPausaMinuti || 30;
-					let netMinutes = shiftMinutes;
-					if (shiftMinutes / 60 > pauseAfter) {
-						netMinutes -= pauseMinutes;
-					}
-
-					assignments.push({
-						dipendente: emp.nome,
-						dipendenteId: emp.id,
-						turno: shift.nome,
-						ruolo: role.nome,
-						colore: role.colore,
-						inizio: shift.inizio,
-						fine: shift.fine,
-					});
-					updateStateAfterAssignment(emp.id, {
-						state,
-						dayKey,
-						assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-						assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-						assignmentMinutes: netMinutes,
-					});
-					assignedEmployees.add(emp.id);
-					assigned++;
-					console.log(`[DEBUG] ✓ Assegnato ${emp.nome} a ${role.nome} nel turno ${shift.nome}`);
-				}
-			}
-
-			// Se non abbastanza per il minimo, aggiungi "Non coperto"
-			while (assigned < role.requiredMin) {
-				assignments.push({
-					dipendente: "Non coperto",
-					dipendenteId: null,
-					turno: shift.nome,
-					ruolo: role.nome,
-					colore: role.colore,
-					inizio: shift.inizio,
-					fine: shift.fine,
-					warning: true,
-				});
-				assigned++;
-				console.log(`[DEBUG] ⚠ Slot non coperto per ${role.nome} nel turno ${shift.nome}`);
-			}
-
-			// SECONDA FASE: Estensione fino a maxDipendenti
-			for (const emp of candidates) {
-				if (assigned >= role.requiredMax) break;
-				if (assignedEmployees.has(emp.id)) continue;
-
-				if (canWorkEmployee(emp, {
-					roleId: role.id,
-					dayName,
-					shift,
-					dayKey,
-					vincoli: db.vincoli,
-					state,
-					assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-					assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-				})) {
-					const shiftMinutes = minutesBetween(shift.inizio, shift.fine);
-					const pauseAfter = db.vincoli?.pausaDopoOre || 6;
-					const pauseMinutes = db.vincoli?.durataPausaMinuti || 30;
-					let netMinutes = shiftMinutes;
-					if (shiftMinutes / 60 > pauseAfter) {
-						netMinutes -= pauseMinutes;
-					}
-
-					assignments.push({
-						dipendente: emp.nome,
-						dipendenteId: emp.id,
-						turno: shift.nome,
-						ruolo: role.nome,
-						colore: role.colore,
-						inizio: shift.inizio,
-						fine: shift.fine,
-					});
-					updateStateAfterAssignment(emp.id, {
-						state,
-						dayKey,
-						assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-						assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-						assignmentMinutes: netMinutes,
-					});
-					assignedEmployees.add(emp.id);
-					assigned++;
-					console.log(`[DEBUG] ✓ Assegnato (fase 2) ${emp.nome} a ${role.nome} nel turno ${shift.nome}`);
-				}
-			}
-		});
-
-		// 6. Riordina dipendenti dopo ogni turno (chi ha meno ore va prima)
-		sortedEmployees.sort((a, b) => {
-			const aWeek = (state.weeklyMinutes.get(state.currentWeek)?.get(a.id) || 0);
-			const bWeek = (state.weeklyMinutes.get(state.currentWeek)?.get(b.id) || 0);
-			if (aWeek !== bWeek) return aWeek - bWeek;
-			return (a.importanza || 5) - (b.importanza || 5);
-		});
-	}
-
-	// TERZA FASE: Continua ad assegnare finché i dipendenti non raggiungono le ore settimanali
-	console.log(`[DEBUG] FASE 3: Completamento ore settimanali`);
-	const maxIterations = 50; // Limite per evitare loop infiniti
-	let iteration = 0;
-	
-	// Traccia quante persone sono assegnate a ogni combinazione (turno, ruolo)
-	const roleAssignmentCounts = new Map(); // key: "shiftId-roleId", value: count
-	
-	// Inizializza contatori dalle fasi precedenti
-	assignments.forEach(assignment => {
-		if (assignment.dipendenteId) { // Ignora "Non coperto"
-			const shift = db.turni.find(s => s.nome === assignment.turno);
-			const role = db.ruoli.find(r => r.nome === assignment.ruolo);
-			if (shift && role) {
-				const key = `${shift.id}-${role.id}`;
-				roleAssignmentCounts.set(key, (roleAssignmentCounts.get(key) || 0) + 1);
-			}
-		}
-	});
-	
-	while (iteration < maxIterations) {
-		iteration++;
-		let assignedInIteration = false;
-
-		// Ordina dipendenti per ore settimanali crescenti
-		const empsByWeeklyHours = [...sortedEmployees].sort((a, b) => {
-			const aWeek = (state.weeklyMinutes.get(state.currentWeek)?.get(a.id) || 0);
-			const bWeek = (state.weeklyMinutes.get(state.currentWeek)?.get(b.id) || 0);
-			if (aWeek !== bWeek) return aWeek - bWeek;
-			return (a.importanza || 5) - (b.importanza || 5);
-		});
-
-		// Per ogni dipendente che non ha raggiunto le ore settimanali
-		for (const emp of empsByWeeklyHours) {
-			const weekMap = state.weeklyMinutes.get(state.currentWeek) || new Map();
-			const currentMinutes = weekMap.get(emp.id) || 0;
-			const targetMinutes = (emp.oreSettimanali || 40) * 60;
-			
-			if (currentMinutes >= targetMinutes) continue; // Ha già le ore sufficienti
-
-			// Trova un turno compatibile
-			for (const shift of shifts) {
-				const compatibleRoles = sortedRoles.filter(role => 
-					shift.ruoliPossibili && shift.ruoliPossibili.includes(role.id) && emp.ruoli.includes(role.id)
-				);
-
-				for (const role of compatibleRoles) {
-					// Verifica se abbiamo già raggiunto maxDipendenti per questo ruolo in questo turno
-					const key = `${shift.id}-${role.id}`;
-					const currentCount = roleAssignmentCounts.get(key) || 0;
-					if (currentCount >= role.requiredMax) {
-						console.log(`[DEBUG] FASE 3: Ruolo ${role.nome} in ${shift.nome} già al massimo (${currentCount}/${role.requiredMax})`);
-						continue; // Salta questo ruolo, è già al massimo
-					}
-
-					if (canWorkEmployee(emp, {
-						roleId: role.id,
-						dayName,
-						shift,
-						dayKey,
-						vincoli: db.vincoli,
-						state,
-						assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-						assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-					})) {
-						const shiftMinutes = minutesBetween(shift.inizio, shift.fine);
-						const pauseAfter = db.vincoli?.pausaDopoOre || 6;
-						const pauseMinutes = db.vincoli?.durataPausaMinuti || 30;
-						let netMinutes = shiftMinutes;
-						if (shiftMinutes / 60 > pauseAfter) {
-							netMinutes -= pauseMinutes;
-						}
-
-						assignments.push({
-							dipendente: emp.nome,
-							dipendenteId: emp.id,
-							turno: shift.nome,
-							ruolo: role.nome,
-							colore: role.colore,
-							inizio: shift.inizio,
-							fine: shift.fine,
-						});
-						updateStateAfterAssignment(emp.id, {
-							state,
-							dayKey,
-							assignmentStart: new Date(`${dayKey}T${shift.inizio}`),
-							assignmentEnd: new Date(`${dayKey}T${shift.fine}`),
-							assignmentMinutes: netMinutes,
-						});
-						roleAssignmentCounts.set(key, currentCount + 1);
-						assignedInIteration = true;
-						console.log(`[DEBUG] ✓ FASE 3: Assegnato ${emp.nome} a ${role.nome} (${shift.nome}) per completare ore (${currentCount + 1}/${role.requiredMax})`);
-						break; // Passa al prossimo dipendente
-					}
-				}
-				if (assignedInIteration) break; // Ha trovato un turno per questo dipendente
-			}
-		}
-
-		// Se non abbiamo fatto assegnazioni in questa iterazione, usciamo
-		if (!assignedInIteration) break;
-	}
-
-	console.log(`[DEBUG] Totale assegnazioni per ${dayKey}:`, assignments.length);
-	return assignments;
-}
-
 function downloadPlanning() {
 	const stored = loadPlanning();
 	if (!stored) {

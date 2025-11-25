@@ -117,10 +117,10 @@ function renderEmployeeForm(employee) {
 					<input name="oreGiornaliere" type="number" min="1" step="0.5" value="${employee?.oreGiornaliere || 8}" required>
 				</div>
 				<div class="form-field">
-					<label>Importanza</label>
-					<select name="importanza">
+					<label>Esperienza</label>
+					<select name="esperienza">
 						${Array.from({ length: 5 }, (_, idx) => idx + 1)
-							.map((val) => `<option value="${val}" ${Number(employee?.importanza || 3) === val ? "selected" : ""}>${val}</option>`)
+							.map((val) => `<option value="${val}" ${Number(employee?.esperienza || 3) === val ? "selected" : ""}>${val}</option>`)
 							.join(" ")}
 					</select>
 				</div>
@@ -225,7 +225,7 @@ function handleEmployeeSubmit(event) {
 		nome: name,
 		oreSettimanali: Number(formData.get("oreSettimanali")) || 40,
 		oreGiornaliere: Number(formData.get("oreGiornaliere")) || 8,
-		importanza: Number(formData.get("importanza")) || 3,
+		esperienza: Number(formData.get("esperienza")) || 3,
 		ruoli: selectedRoles,
 		indisponibilita: tempIndisponibilita,
 		feriePermessi: [],
@@ -279,7 +279,7 @@ function renderEmployeeList() {
 					<div class="card-header">
 						<div>
 							<p class="card-title"><i class="fa-solid fa-user"></i>${employee.nome}</p>
-							<p class="card-description">Importanza ${employee.importanza} · ${employee.oreSettimanali}h/settimana · ${(employee.oreGiornaliere || 8).toString().replace('.', ',')}h/giorno</p>
+							<p class="card-description">Esperienza ${employee.esperienza} · ${employee.oreSettimanali}h/settimana · ${(employee.oreGiornaliere || 8).toString().replace('.', ',')}h/giorno</p>
 							<p class="muted">Ruoli: ${rolesLabel}</p>
 						</div>
 						<div class="list-inline">
