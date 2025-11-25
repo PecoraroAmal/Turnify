@@ -117,8 +117,7 @@ function renderShiftForm(shift) {
 					${shift ? "Aggiorna" : "Crea"} turno
 				</button>
 				<button class="button secondary" type="button" id="cancelShiftForm">
-					<i class="fa-solid fa-xmark"></i>
-					Chiudi
+					<i class="fa-solid fa-times"></i>Annulla
 				</button>
 			</div>
 		</form>

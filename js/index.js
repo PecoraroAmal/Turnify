@@ -1,10 +1,10 @@
 function normalizeDayName(s){ return (s||"").toString().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim().toLowerCase(); }
 const DB_KEY = "gestoreTurni_data";
 const PLANNING_KEY = "gestoreTurni_planning";
+const INDISPONIBILITA_KEY = "gestoreTurni_indisponibilita";
 
 const dashboardDom = {
 	metricsHost: document.getElementById("dashboardMetrics"),
-	refreshBtn: document.getElementById("refreshDashboard"),
 	planningStart: document.getElementById("planningStart"),
 	generateBtn: document.getElementById("generatePlanning"),
 	downloadBtn: document.getElementById("downloadPlanning"),
@@ -30,33 +30,25 @@ function getReadableTextColor(hex) {
 function readDatabase() {
 	try {
 		const parsed = JSON.parse(localStorage.getItem(DB_KEY) || "{}");
-		if (parsed.dipendenti && parsed.dipendenti.length > 0) {
-			return {
-				ruoli: parsed?.ruoli || [],
-				dipendenti: parsed?.dipendenti || [],
-				turni: parsed?.turni || [],
-				vincoli: parsed?.vincoli || {},
-			};
-		} else {
-			// Use hardcoded data
-			return {
-				ruoli: [],
-				dipendenti: (window.employees || []).map(e => ({ id: e.name, nome: e.name, oreSettimanali: e.hoursWeek })),
-				turni: [
-					{ nome: 'Mattina', inizio: '06:00', fine: '14:30', colore: '#007bff' },
-					{ nome: 'Pomeriggio', inizio: '13:30', fine: '22:00', colore: '#28a745' }
-				],
-				vincoli: window.constraints || {},
-			};
-		}
+		return {
+			ruoli: parsed?.ruoli || [],
+			dipendenti: parsed?.dipendenti || [],
+			turni: parsed?.turni || [],
+			vincoli: parsed?.vincoli || {},
+		};
 	} catch (error) {
 		console.error("Errore lettura database", error);
 		return { ruoli: [], dipendenti: [], turni: [], vincoli: {} };
 	}
 }
 
-function savePlanning(planning) {
-	localStorage.setItem(PLANNING_KEY, JSON.stringify(planning));
+function readIndisponibilita() {
+	try {
+		return JSON.parse(localStorage.getItem(INDISPONIBILITA_KEY) || "[]");
+	} catch (error) {
+		console.error("Errore lettura indisponibilità", error);
+		return [];
+	}
 }
 
 function loadPlanning() {
@@ -71,10 +63,12 @@ function loadPlanning() {
 function renderMetrics() {
 	if (!dashboardDom.metricsHost) return;
 	const db = readDatabase();
+	const indisponibilita = readIndisponibilita();
 	const cards = [
 		{ label: "Dipendenti", value: db.dipendenti.length, icon: "fa-user-group" },
 		{ label: "Ruoli", value: db.ruoli.length, icon: "fa-layer-group" },
 		{ label: "Turni", value: db.turni.length, icon: "fa-business-time" },
+		{ label: "Indisponibilità", value: indisponibilita.length, icon: "fa-calendar-times" },
 		{ label: "Vincoli personalizzati", value: Object.keys(db.vincoli?.perDipendente || {}).length, icon: "fa-scale-balanced" },
 	];
 
@@ -119,9 +113,7 @@ function getDefaultStartDate() {
 }
 
 function ensureStartDate() {
-	if (!dashboardDom.planningStart.value) {
-		dashboardDom.planningStart.value = getDefaultStartDate();
-	}
+	dashboardDom.planningStart.value = getDefaultStartDate();
 }
 
 function createDateRange(startDate, days) {
@@ -378,7 +370,6 @@ function initDashboard() {
 	ensureStartDate();
 	renderMetrics();
 	renderPlanningMatrix();
-	dashboardDom.refreshBtn?.addEventListener("click", renderMetrics);
 	dashboardDom.generateBtn?.addEventListener("click", () => generatePlanning());
 	dashboardDom.downloadBtn?.addEventListener("click", downloadPlanning);
 	dashboardDom.clearBtn?.addEventListener("click", clearPlanning);

@@ -101,6 +101,10 @@
 	margin-top: 18px;
 }
 
+.full-width {
+	grid-column: 1 / -1;
+}
+
 .helper-text {
 	font-size: 0.75rem;
 	color: #666666;

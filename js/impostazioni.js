@@ -18,16 +18,16 @@ const guideLinks = [
 		icon: "fa-layer-group",
 	},
 	{
-		title: "2. Aggiungi dipendenti",
-		description: "Ruoli abilitati, esperienza e indisponibilità.",
-		href: "dipendenti.html",
-		icon: "fa-user-group",
-	},
-	{
-		title: "3. Configura i turni",
+		title: "2. Configura i turni",
 		description: "Fasce orarie e ruoli richiesti.",
 		href: "turni.html",
 		icon: "fa-business-time",
+	},
+	{
+		title: "3. Aggiungi dipendenti",
+		description: "Ruoli abilitati, esperienza e indisponibilità.",
+		href: "dipendenti.html",
+		icon: "fa-user-group",
 	},
 	{
 		title: "4. Imposta i vincoli",
@@ -45,7 +45,7 @@ const guideLinks = [
 
 const simulationConfig = {
 	roles: [
-		{ id: 1, nome: "Store Delivery Mattina", colore: "#22d3ee", minDipendenti: 1, maxDipendenti: 2, livello: 1 },
+		{ id: 1, nome: "Store Delivery Mattina", colore: "#a322eeff", minDipendenti: 1, maxDipendenti: 2, livello: 1 },
 		{ id: 2, nome: "Store Delivery Pomeriggio", colore: "#0ea5e9", minDipendenti: 1, maxDipendenti: 2, livello: 1 },
 		{ id: 3, nome: "Sniper", colore: "#ef4444", minDipendenti: 1, maxDipendenti: 1, livello: 2 },
 		{ id: 4, nome: "Carrista", colore: "#f59e0b", minDipendenti: 1, maxDipendenti: 2, livello: 3 },
@@ -110,6 +110,26 @@ function clearSettingsMessage() {
 	settingsDom.message.className = "app-message hidden";
 }
 
+function showConfirm(message) {
+	return new Promise((resolve) => {
+		const overlay = document.createElement("div");
+		overlay.className = "confirm-overlay";
+		overlay.innerHTML = `
+			<div class="confirm-dialog">
+				<h2>Conferma</h2>
+				<p>${message}</p>
+				<div class="confirm-actions">
+					<button class="button danger" id="confirmYes"><i class="fa-solid fa-check"></i>Conferma</button>
+					<button class="button secondary" id="confirmNo"><i class="fa-solid fa-rotate-left"></i>Annulla</button>
+				</div>
+			</div>`;
+		document.body.appendChild(overlay);
+		const cleanup = () => overlay.remove();
+		overlay.querySelector("#confirmYes").addEventListener("click", () => { resolve(true); cleanup(); });
+		overlay.querySelector("#confirmNo").addEventListener("click", () => { resolve(false); cleanup(); });
+	});
+}
+
 function importData(event) {
 	const file = event.target.files?.[0];
 	if (!file) return;
@@ -136,8 +156,9 @@ function importData(event) {
 	reader.readAsText(file);
 }
 
-function resetAll() {
-	if (!confirm("Eliminare tutti i dati salvati in locale?")) return;
+async function resetAll() {
+	const ok = await showConfirm("Eliminare tutti i dati salvati in locale?");
+	if (!ok) return;
 	clearSettingsMessage();
 	localStorage.removeItem(SETTINGS_STORAGE_KEY);
 	localStorage.removeItem(PLANNING_STORAGE_KEY);
@@ -172,6 +193,8 @@ function buildSimulationData() {
 			id: i + 1,
 			nome: simulationConfig.employeeNames[i],
 			ruoli: ruoli, // Store Delivery Mattina, Store Delivery Pomeriggio, Sniper, Carrista
+			turni: [1, 2], // Mattina, Pomeriggio
+			mezzo: ruoli.includes(4), // Carrista ha il mezzo
 			oreSettimanali: 40,
 			oreGiornaliere: 8,
 			esperienza: esperienza,
@@ -190,6 +213,8 @@ function buildSimulationData() {
 			id: i + 1,
 			nome: simulationConfig.employeeNames[i],
 			ruoli: ruoli, // Store Delivery Mattina, Store Delivery Pomeriggio, Sniper
+			turni: [1, 2], // Mattina, Pomeriggio
+			mezzo: ruoli.includes(4), // Carrista ha il mezzo
 			oreSettimanali: 40,
 			oreGiornaliere: 8,
 			esperienza: esperienza,
@@ -208,6 +233,8 @@ function buildSimulationData() {
 			id: i + 1,
 			nome: simulationConfig.employeeNames[i],
 			ruoli: ruoli, // Store Delivery Mattina, Store Delivery Pomeriggio
+			turni: [1, 2], // Mattina, Pomeriggio
+			mezzo: ruoli.includes(4), // Carrista ha il mezzo
 			oreSettimanali: 40,
 			oreGiornaliere: 8,
 			esperienza: esperienza,
@@ -224,8 +251,9 @@ function buildSimulationData() {
 	};
 }
 
-function seedSimulation() {
-	if (!confirm("Sovrascrivere i dati attuali con la simulazione?")) return;
+async function seedSimulation() {
+	const ok = await showConfirm("Sovrascrivere i dati attuali con la simulazione?");
+	if (!ok) return;
 	clearSettingsMessage();
 	const payload = buildSimulationData();
 	localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(payload));

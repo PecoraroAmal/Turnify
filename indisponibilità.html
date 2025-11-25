@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Turnify | Indisponibilità</title>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"
+		integrity="sha512-DTOQO9RWCH3ppGqcWaEA1BIZOC6xxalwEsw9c2QQeAIftl+Vegovlnee1c9QX4TctnWMn13TZye+giMm8e2LwA=="
+		crossorigin="anonymous" referrerpolicy="no-referrer" />
+	<link rel="stylesheet" href="css/stile.css" />
+	<link rel="stylesheet" href="css/form.css" />
+</head>
+
+<body>
+	<div class="app-shell">
+		<header class="app-header">
+			<div class="brand">
+				<div class="brand-badge"><i class="fa-solid fa-rotate"></i></div>
+				<span>Turnify</span>
+			</div>
+			<nav class="app-nav">
+				<a class="nav-link" href="index.html"><i class="fa-solid fa-table-columns"></i>Dashboard</a>
+				<a class="nav-link" href="ruoli.html"><i class="fa-solid fa-layer-group"></i>Ruoli</a>
+				<a class="nav-link" href="dipendenti.html"><i class="fa-solid fa-user-group"></i>Dipendenti</a>
+				<a class="nav-link" href="turni.html"><i class="fa-solid fa-business-time"></i>Turni</a>
+				<a class="nav-link" href="vincoli.html"><i class="fa-solid fa-scale-balanced"></i>Vincoli</a>
+				<a class="nav-link active" href="indisponibilità.html"><i class="fa-solid fa-calendar-times"></i>Indisponibilità</a>
+				<a class="nav-link" href="impostazioni.html"><i class="fa-solid fa-gear"></i>Impostazioni</a>
+			</nav>
+		</header>
+
+		<main class="page-content">
+			<section class="page-hero">
+				<h1>Gestione Indisponibilità</h1>
+				<p>Qui puoi creare, modificare o eliminare le indisponibilità dei dipendenti</p>
+			</section>
+
+			<section class="page-body">
+				<div class="app-message hidden" id="message"></div>
+
+				<div class="card">
+					<div class="card-header">
+						<div>
+							<p class="card-title"><i class="fa-solid fa-list"></i>Elenco Indisponibilità</p>
+							<p class="card-description">Visualizza e gestisci le indisponibilità esistenti.</p>
+						</div>
+						<div class="form-actions">
+							<button class="button" id="addBtn"><i class="fa-solid fa-plus"></i>Aggiungi Indisponibilità</button>
+							<button class="button secondary" id="togglePastBtn">Nascondi passate</button>
+						</div>
+					</div>
+
+					<div id="indisponibilitaList" class="grid"></div>
+				</div>
+			</section>
+		</main>
+
+		<footer>Turnify · Pianificazione turni smart</footer>
+
+		<div class="modal-overlay hidden" id="formModal">
+			<div class="modal-dialog">
+				<div class="card">
+					<div class="card-header">
+						<div>
+							<p class="card-title"><i class="fa-solid fa-plus"></i>Aggiungi/Modifica Indisponibilità</p>
+							<p class="card-description">Compila il form per creare una nuova indisponibilità o modificarne una esistente.</p>
+						</div>
+					</div>
+
+					<form id="indisponibilitaForm" class="form-grid two-columns">
+						<div class="form-field">
+							<label for="dipendente">Dipendente</label>
+							<select id="dipendente" required>
+								<option value="">Seleziona dipendente</option>
+							</select>
+						</div>
+
+						<div class="form-field">
+							<label for="tipo">Tipo di Indisponibilità</label>
+							<select id="tipo" required>
+								<option value="">Seleziona tipo</option>
+								<option value="ferie">Ferie</option>
+								<option value="permessi">Permessi</option>
+								<option value="malattia">Malattia</option>
+								<option value="indisponibilità">Indisponibilità</option>
+							</select>
+						</div>
+
+						<div class="form-field">
+							<label for="dataInizio">Data Inizio</label>
+							<input type="date" id="dataInizio" required />
+						</div>
+
+						<div class="form-field">
+							<label for="oraInizio">Ora Inizio (opzionale)</label>
+							<input type="time" id="oraInizio" />
+						</div>
+
+						<div class="form-field">
+							<label for="dataFine">Data Fine</label>
+							<input type="date" id="dataFine" required />
+						</div>
+
+						<div class="form-field">
+							<label for="oraFine">Ora Fine (opzionale)</label>
+							<input type="time" id="oraFine" />
+						</div>
+
+						<div class="form-field full-width">
+							<label for="note">Note (opzionale)</label>
+							<textarea id="note" rows="3"></textarea>
+						</div>
+
+						<div class="form-actions full-width">
+							<button type="submit" class="button"><i class="fa-solid fa-save"></i>Salva</button>
+							<button type="button" id="cancelBtn" class="button secondary"><i class="fa-solid fa-times"></i>Annulla</button>
+						</div>
+					</form>
+				</div>
+			</div>
+		</div>
+	</div>
+
+	<script src="js/indisponibilità.js"></script>
+</body>
+</html>

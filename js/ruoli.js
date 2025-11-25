@@ -98,8 +98,7 @@ function renderForm(role) {
 					${isEditing ? "Aggiorna" : "Crea"} ruolo
 				</button>
 				<button class="button secondary" type="button" id="cancelRoleForm">
-					<i class="fa-solid fa-xmark"></i>
-					Chiudi
+					<i class="fa-solid fa-times"></i>Annulla
 				</button>
 			</div>
 		</form>

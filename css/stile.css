@@ -24,7 +24,7 @@ img { max-width:100%; display:block; }
 .card-description { color:#5a5a5a; margin-top:6px; }
 .chip { display:inline-flex; align-items:center; gap:6px; padding:6px 12px; border-radius:999px; font-size:0.75rem; background:#ececec; border:1px solid #d9d9d9; color:var(--text-primary); }
 .grid { display:grid; gap:18px; }
-@media (min-width:900px){ .grid.two-columns{grid-template-columns:repeat(2,minmax(0,1fr));} .grid.three-columns{grid-template-columns:repeat(3,minmax(0,1fr));} }
+@media (min-width:900px){ .grid.two-columns{grid-template-columns:repeat(2,minmax(0,1fr));} .grid.three-columns{grid-template-columns:repeat(3,minmax(0,1fr));} .grid.four-columns{grid-template-columns:repeat(4,minmax(0,1fr));} }
 .empty-state { text-align:center; padding:32px; border:1px dashed #d0d0d0; border-radius:var(--card-radius); color:var(--text-muted); background:#ffffff; }
 .empty-state i { font-size:2rem; margin-bottom:12px; color:#c2c2c2; }
 .button { display:inline-flex; align-items:center; gap:8px; border:1px solid #d6d6d6; border-radius:999px; padding:10px 18px; font-weight:600; cursor:pointer; transition:var(--transition-fast); color:var(--text-primary); background:#f2f2f2; }
@@ -66,4 +66,6 @@ body.no-scroll { overflow:hidden; }
 .confirm-dialog p { font-size:0.9rem; color:#333; margin-bottom:20px; }
 .confirm-actions { display:flex; gap:12px; justify-content:flex-end; }
 .confirm-actions .button { flex:0 0 auto; }
+.modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:1200; display:flex; align-items:center; justify-content:center; padding:24px; }
+.modal-dialog { max-width:600px; width:100%; max-height:90vh; overflow-y:auto; }
 @media (max-width:720px){ .app-header{flex-direction:column; gap:16px; text-align:center;} .app-nav{justify-content:center;} .page-hero{padding:24px;} }

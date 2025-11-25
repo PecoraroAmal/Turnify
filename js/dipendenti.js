@@ -31,8 +31,6 @@ const giorniSettimana = [
 	"domenica",
 ];
 
-let tempIndisponibilita = [];
-
 function readDipDb() {
 	try {
 		const parsed = JSON.parse(localStorage.getItem(DIP_STORAGE_KEY) || "{}");
@@ -73,7 +71,6 @@ function toggleEmployeeForm(open, employee) {
 	} else {
 		dipSelectors.formPanel.classList.add("hidden");
 		dipSelectors.formHost.innerHTML = "";
-		tempIndisponibilita = [];
 		document.body.classList.remove("no-scroll");
 	}
 }
@@ -82,10 +79,10 @@ function renderEmployeeForm(employee) {
 	if (!dipSelectors.formHost) return;
 	const db = readDipDb();
 	const roles = db.ruoli;
-	tempIndisponibilita = employee?.indisponibilita
-		? JSON.parse(JSON.stringify(employee.indisponibilita))
-		: [];
+	const shifts = db.turni;
 	const selectedRoles = new Set(employee?.ruoli || []);
+	const defaultShiftIds = shifts.filter(s => s.nome === "Mattina" || s.nome === "Pomeriggio").map(s => s.id);
+	const selectedShifts = new Set(employee?.turni || defaultShiftIds);
 
 	const rolesMarkup = roles.length
 		? roles
@@ -99,6 +96,19 @@ function renderEmployeeForm(employee) {
 				)
 				.join(" ")
 		: `<p class="helper-text">Definisci i ruoli prima di assegnarli al personale.</p>`;
+
+	const shiftsMarkup = shifts.length
+		? shifts
+				.map(
+					(shift) => `
+						<label class="checkbox-chip">
+							<input type="checkbox" name="turni" value="${shift.id}" ${selectedShifts.has(shift.id) ? "checked" : ""}>
+							<span>${shift.nome}</span>
+						</label>
+					`
+				)
+				.join(" ")
+		: `<p class="helper-text">Definisci i turni prima di assegnarli al personale.</p>`;
 
 	dipSelectors.formHost.innerHTML = `
 		<form id="employeeFormElement">
@@ -132,18 +142,15 @@ function renderEmployeeForm(employee) {
 			</div>
 
 			<div class="form-field">
-				<label>Indisponibilità</label>
-				<div class="inline-field">
-					<select id="daySelect">
-						${giorniSettimana.map((giorno) => `<option value="${giorno}">${giorno}</option>`).join(" ")}
-					</select>
-					<input type="time" id="startTime" value="08:00">
-					<input type="time" id="endTime" value="17:00">
-					<button class="button secondary" type="button" id="addUnavailability">
-						<i class="fa-solid fa-plus"></i>Aggiungi
-					</button>
-				</div>
-				<div id="unavailabilityList" class="vincoli-list"></div>
+				<label>Turni disponibili</label>
+				<div class="checkbox-group">${shiftsMarkup}</div>
+			</div>
+
+			<div class="form-field">
+				<label class="checkbox-chip">
+					<input type="checkbox" name="mezzo" ${employee?.mezzo ? "checked" : ""}>
+					<span>Ha il mezzo</span>
+				</label>
 			</div>
 
 			<div class="form-actions">
@@ -152,8 +159,7 @@ function renderEmployeeForm(employee) {
 					${employee ? "Aggiorna" : "Crea"} dipendente
 				</button>
 				<button class="button secondary" type="button" id="cancelEmployeeForm">
-					<i class="fa-solid fa-xmark"></i>
-					Chiudi
+					<i class="fa-solid fa-times"></i>Annulla
 				</button>
 			</div>
 		</form>
@@ -161,50 +167,7 @@ function renderEmployeeForm(employee) {
 
 	const formEl = document.getElementById("employeeFormElement");
 	formEl?.addEventListener("submit", handleEmployeeSubmit);
-	document.getElementById("addUnavailability")?.addEventListener("click", handleAddUnavailability);
-	renderUnavailabilityList();
 	document.getElementById("cancelEmployeeForm")?.addEventListener("click", () => toggleEmployeeForm(false));
-}
-
-function handleAddUnavailability() {
-	clearEmployeesMessage();
-	const day = document.getElementById("daySelect").value;
-	const start = document.getElementById("startTime").value;
-	const end = document.getElementById("endTime").value;
-	if (!day || !start || !end) return;
-	if (start >= end) {
-		showEmployeesMessage("L'orario di inizio deve precedere quello di fine.", "error");
-		return;
-	}
-	tempIndisponibilita.push({ giorno: day, da: start, a: end });
-	renderUnavailabilityList();
-}
-
-function renderUnavailabilityList() {
-	const host = document.getElementById("unavailabilityList");
-	if (!host) return;
-	if (!tempIndisponibilita.length) {
-		host.innerHTML = `<p class="helper-text">Nessuna indisponibilità registrata.</p>`;
-		return;
-	}
-	host.innerHTML = tempIndisponibilita
-		.map(
-			(item, index) => `
-				<div class="vincolo-item">
-					<span>${item.giorno} · ${item.da} - ${item.a}</span>
-					<button class="button danger" type="button" data-remove="${index}"><i class="fa-solid fa-xmark"></i></button>
-				</div>
-			`
-		)
-		.join(" ");
-
-	host.querySelectorAll("button[data-remove]").forEach((btn) =>
-		btn.addEventListener("click", (event) => {
-			const idx = Number(event.currentTarget.dataset.remove);
-			tempIndisponibilita.splice(idx, 1);
-			renderUnavailabilityList();
-		})
-	);
 }
 
 function handleEmployeeSubmit(event) {
@@ -219,6 +182,8 @@ function handleEmployeeSubmit(event) {
 	}
 
 	const selectedRoles = formData.getAll("ruoli").map((role) => Number(role));
+	const selectedShifts = formData.getAll("turni").map((shift) => Number(shift));
+	const hasMezzo = formData.has("mezzo");
 
 	const payload = {
 		id: formData.get("id") ? Number(formData.get("id")) : Date.now(),
@@ -227,7 +192,8 @@ function handleEmployeeSubmit(event) {
 		oreGiornaliere: Number(formData.get("oreGiornaliere")) || 8,
 		esperienza: Number(formData.get("esperienza")) || 3,
 		ruoli: selectedRoles,
-		indisponibilita: tempIndisponibilita,
+		turni: selectedShifts,
+		mezzo: hasMezzo,
 		feriePermessi: [],
 	};
 
@@ -239,7 +205,6 @@ function handleEmployeeSubmit(event) {
 	}
 
 	persistDipDb(db);
-	tempIndisponibilita = [];
 	toggleEmployeeForm(false);
 	renderEmployeeList();
 	showEmployeesMessage("Dipendente salvato con successo.", "success");
@@ -260,6 +225,7 @@ function renderEmployeeList() {
 
 	if (dipSelectors.emptyState) dipSelectors.emptyState.style.display = "none";
 	const roleMap = new Map(db.ruoli.map((role) => [role.id, role]));
+	const shiftMap = new Map(db.turni.map((shift) => [shift.id, shift]));
 
 	dipSelectors.listHost.innerHTML = employees
 		.map((employee) => {
@@ -274,6 +240,9 @@ function renderEmployeeList() {
 					})
 					.join(" ")
 				: "Nessun ruolo";
+			const shiftsLabel = employee.turni?.length
+				? employee.turni.map((shiftId) => shiftMap.get(shiftId)?.nome || `Turno #${shiftId}`).join(", ")
+				: "Nessun turno";
 			return `
 				<article class="card" data-id="${employee.id}">
 					<div class="card-header">
@@ -281,6 +250,8 @@ function renderEmployeeList() {
 							<p class="card-title"><i class="fa-solid fa-user"></i>${employee.nome}</p>
 							<p class="card-description">Esperienza ${employee.esperienza} · ${employee.oreSettimanali}h/settimana · ${(employee.oreGiornaliere || 8).toString().replace('.', ',')}h/giorno</p>
 							<p class="muted">Ruoli: ${rolesLabel}</p>
+							<p class="muted">Turni: ${shiftsLabel}</p>
+							<p class="muted">Mezzo: ${employee.mezzo ? 'Sì' : 'No'}</p>
 						</div>
 						<div class="list-inline">
 							<button class="button secondary" data-action="edit"><i class="fa-solid fa-pen"></i></button>
