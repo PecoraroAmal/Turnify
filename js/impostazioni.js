@@ -94,7 +94,7 @@ function exportData() {
 	const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
 	const link = document.createElement("a");
 	link.href = URL.createObjectURL(blob);
-	link.download = `turnify-backup-${Date.now()}.json`;
+	link.download = `TurnySmart-backup-${Date.now()}.json`;
 	link.click();
 	URL.revokeObjectURL(link.href);
 }
@@ -140,7 +140,7 @@ function importData(event) {
 		try {
 			const parsed = JSON.parse(loadEvent.target.result);
 			if (!parsed?.dati) {
-				showSettingsMessage("File non valido. Carica un backup Turnify.", "warning");
+				showSettingsMessage("File non valido. Carica un backup TurnySmart.", "warning");
 				return;
 			}
 			localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(parsed.dati));

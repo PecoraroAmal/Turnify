@@ -156,7 +156,7 @@ function downloadPlanning() {
 	const blob = new Blob([JSON.stringify(stored, null, 2)], { type: "application/json" });
 	const link = document.createElement("a");
 	link.href = URL.createObjectURL(blob);
-	link.download = `turnify-planning-${stored.startDate || Date.now()}.json`;
+	link.download = `TurnySmart-planning-${stored.startDate || Date.now()}.json`;
 	link.click();
 	URL.revokeObjectURL(link.href);
 }
